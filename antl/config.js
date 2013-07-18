@@ -12,7 +12,9 @@ var settings = exports.settings = {
     mongodb_database: 'beaglebone',
     mongodb_collection: 'sensors',
     mongodb_username: null,
-    mongodb_password: null
+    mongodb_password: null,
+    xively_api_url: null,
+    xively_api_key: null
 };
 
 exports.loadConfigFileSync = function(filepath) {

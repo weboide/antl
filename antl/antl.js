@@ -1,5 +1,7 @@
+#!/usr/bin/env node
 var b = require('bonescript'),
     config = require('./config'),
+    request = require('request'),
     async = require('async');
 // set up mongodb
 var mongodb = require("mongodb"),
@@ -8,8 +10,14 @@ var mongodb = require("mongodb"),
     mongocollection;
 
 // PINS
-var ldr_pin = 'P9_38';
+var ldr_pin = 'P9_35';
 var tmp_pin = 'P9_40';
+var ledPin = "P8_12";
+var ledPinGreen = "P8_11";
+b.pinMode(ledPin, b.OUTPUT);
+b.digitalWrite(ledPin, b.low);
+b.pinMode(ledPinGreen, b.OUTPUT);
+b.digitalWrite(ledPinGreen, b.HIGH);
 
 // NOTES:
 // may need to toss the first result, as it seems to be cached
@@ -17,19 +25,19 @@ var tmp_pin = 'P9_40';
 function readSensors(callback) {
     var sensors = [{name:'light', 'pin':ldr_pin}, {name:'temperature', 'pin':tmp_pin}];
     async.mapSeries(sensors, function(sensor, cb){
-        //console.log('requesting sensor: '+v);
+        //console.log('requesting sensor: '+sensor['pin']);
         b.analogRead(sensor['pin'], function(val){
             if('value' in val)
             {
                 sensor['value'] = val['value'];
-                cb(null, sensor);
+                setTimeout(cb, 100, null, sensor);
             }
             else
                 cb('no value');
         });
     }, function(err, results){
-        //console.log('readSensors: ');
-        //console.dir(results);
+        console.log('readSensors: ');
+        console.dir(results);
         callback(err, results);
     });
 	/*var ldr = b.analogRead(ldr_pin);
@@ -106,12 +114,36 @@ function processReadings(readings)
         else
             console.log('inserted record');
     });
+
+    // xively
+    var xobj = {
+	version:"1.0.0",
+	datastreams:[
+		{id:"light1", "current_value":light.toFixed(2)},
+		{id:"temp1", "current_value":temperature.toFixed(2)},
+	]
+    };
+    if(config.settings.xively_api_url)
+    {
+    	request({uri:config.settings.xively_api_url, method:"PUT", json:xobj, headers:{"X-ApiKey":config.settings.xively_api_key}},
+			function (error, response, body){
+				if(error)
+					console.log('error when sending to xively '+error);
+				else
+					console.log('xively returned '+response.statusCode);
+			});
+    }
+
+    b.digitalWrite(ledPin, b.low);
+    b.digitalWrite(ledPinGreen, b.HIGH);
 	console.log(obj);
 }
 
 function tick() {
     console.log('*tick*');
-    async.timesSeries(10, function(n, next){
+    b.digitalWrite(ledPinGreen, b.low);
+    b.digitalWrite(ledPin, b.HIGH);
+    async.timesSeries(8, function(n, next){
         setTimeout(function(){readSensors(next);}, 1000);
     }, function(err, readings){
         readings.shift(); // toss the first reading, since it somehow can be off sometimes.
@@ -128,44 +160,44 @@ function start_ticking()
 
 
 // load config
-config.loadConfigFileSync('/home/root/.antl.conf');
+if(config.loadConfigFileSync('/home/root/.antl.conf'))
+{
+
+    // connect to mongo db
+    mongoclient.open(function(error, client){
+        if(error)
+        {
+            console.log('error connecting to mongodb:');
+            console.log(error);
+            process.exit(1);
+        }else{
+            console.log('Connected to mongodb.');
+            console.log('auth with: '+config.settings.mongodb_username);
+            client.authenticate(config.settings.mongodb_username,config.settings.mongodb_password,function(error,data){
+                 if(data){
+                    client.collection(config.settings.mongodb_collection, function(error, collection) {
+                        if(error)
+                        {
+                            console.log('error opening collection:');
+                            console.log(error);
+                            process.exit(1);
+                        }else{
+                            console.log('Got collecction');
+                            mongocollection = collection;
+                            start_ticking();
+                        }
+                    });
+                 }
+                 else{
+                     console.log(error);
+                     process.exit(1);
+                 }
+            });
+    
+            
+    
+        }
+    });
 
 
-// connect to mongo db
-mongoclient.open(function(error, client){
-    if(error)
-    {
-        console.log('error connecting to mongodb:');
-        console.log(error);
-        process.exit(1);
-    }else{
-        console.log('Connected to mongodb.');
-        console.log('auth with: '+config.settings.mongodb_username);
-        client.authenticate(config.settings.mongodb_username,config.settings.mongodb_password,function(error,data){
-             if(data){
-                client.collection(config.settings.mongodb_collection, function(error, collection) {
-                    if(error)
-                    {
-                        console.log('error opening collecction:');
-                        console.log(error);
-                        process.exit(1);
-                    }else{
-                        console.log('Got collecction');
-                        mongocollection = collection;
-                        start_ticking();
-                    }
-                });
-             }
-             else{
-                 console.log(error);
-                 process.exit(1);
-             }
-        });
-
-        
-
-    }
-});
-
-
-
+}
